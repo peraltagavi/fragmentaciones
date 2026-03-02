@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Efecto Kingpin · Red Temporal de Fragmentación</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=Barlow+Condensed:wght@300;400;500;600&display=swap');
+
+:root {
+  --bg:      #f4f1ea;
+  --bg2:     #ede9e0;
+  --ink:     #1a1a24;
+  --ink2:    #44445a;
+  --ink3:    #888899;
+  --rule:    rgba(26,26,36,0.08);
+  --cartel:  #c0240c;
+  --evento:  #d4780a;
+  --frag:    #1a6b3a;
+  --frag2:   #2a8a50;
+  --internal:#4466bb;
+  --murder:  #8b0000;
+  --death:   #555577;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Barlow Condensed', sans-serif;
+  width: 100%; height: 100%;
+  overflow: hidden;
+}
+
+/* ── HEADER ── */
+#header {
+  position: fixed; top: 0; left: 0; right: 0;
+  z-index: 100;
+  background: var(--bg);
+  border-bottom: 2px solid var(--ink);
+  padding: 10px 24px 8px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px;
+}
+
+.title-block h1 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(1.3rem, 2.5vw, 1.9rem);
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  line-height: 1;
+}
+.title-block h1 span { color: var(--cartel); }
+.title-block p {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.52rem;
+  color: var(--ink3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.legend {
+  display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+}
+.li {
+  display: flex; align-items: center; gap: 5px;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.52rem; color: var(--ink2);
+  text-transform: uppercase; letter-spacing: 0.07em;
+}
+.lsym { flex-shrink: 0; }
+
+/* ── CONTROLS ── */
+#controls {
+  position: fixed; top: 0; left: 0; right: 0;
+  z-index: 99;
+  background: rgba(244,241,234,0.97);
+  border-bottom: 1px solid rgba(26,26,36,0.12);
+  padding: 4px 24px;
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+}
+/* header takes ~58px, controls strip takes ~32px — positioned via JS */
+
+.cb {
+  background: none;
+  border: 1px solid rgba(26,26,36,0.2);
+  color: var(--ink2);
+  padding: 3px 10px;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.52rem; letter-spacing: 0.06em;
+  cursor: pointer; transition: all 0.15s;
+  text-transform: uppercase;
+}
+.cb:hover { border-color: var(--ink); color: var(--ink); }
+.cb.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+.cb-fam {
+  background: none;
+  border: 1px solid rgba(26,26,36,0.15);
+  padding: 3px 8px;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.5rem; letter-spacing: 0.05em;
+  cursor: pointer; transition: all 0.15s;
+  text-transform: uppercase;
+  color: var(--ink2);
+}
+.cb-fam:hover { opacity: 0.8; }
+.cb-fam.on { color: #fff; }
+
+.sep { width: 1px; height: 16px; background: rgba(26,26,36,0.15); }
+
+/* ── CANVAS WRAPPER ── */
+#wrap {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+
+/* ── SVG ── */
+#chart { display: block; }
+
+/* Node labels */
+.node-label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+.node-label.cartel {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--cartel);
+}
+.node-label.frag {
+  font-size: 9.5px;
+  font-weight: 500;
+  fill: var(--frag);
+}
+
+/* ── TOOLTIP ── */
+#tooltip {
+  position: fixed;
+  background: var(--ink);
+  color: var(--bg);
+  padding: 10px 14px;
+  pointer-events: none;
+  z-index: 999;
+  max-width: 260px;
+  opacity: 0;
+  transition: opacity 0.1s;
+  box-shadow: 4px 4px 0 rgba(26,26,36,0.3);
+}
+#tooltip.on { opacity: 1; }
+.tt-t { font-family: 'DM Mono', monospace; font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(244,241,234,0.5); margin-bottom: 3px; }
+.tt-n { font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem; letter-spacing: 0.04em; line-height: 1; color: #fff; }
+.tt-b { font-family: 'Barlow Condensed', sans-serif; font-size: 0.72rem; color: rgba(244,241,234,0.75); margin-top: 4px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div class="title-block">
+    <h1>EFECTO <span>KINGPIN</span> · RED TEMPORAL</h1>
+    <p>Fragmentación del crimen organizado en México · 2005–2024</p>
+  </div>
+  <div class="legend">
+    <div class="li">
+      <svg class="lsym" width="14" height="14"><circle cx="7" cy="7" r="6" fill="var(--cartel)" opacity="0.9"/></svg>
+      Cártel Matriz
+    </div>
+    <div class="li">
+      <svg class="lsym" width="12" height="12">
+        <polygon points="6,0 12,6 6,12 0,6" fill="var(--evento)" opacity="0.9"/>
+      </svg>
+      Evento Kingpin
+    </div>
+    <div class="li">
+      <svg class="lsym" width="12" height="12"><circle cx="6" cy="6" r="5" fill="var(--frag)" opacity="0.85"/></svg>
+      Fragmento
+    </div>
+    <div class="li">
+      <svg class="lsym" width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="var(--ink)" stroke-width="2.5"/></svg>
+      Duración
+    </div>
+    <div class="li">
+      <svg class="lsym" width="22" height="12">
+        <line x1="0" y1="0" x2="22" y2="12" stroke="var(--evento)" stroke-width="1.5" stroke-dasharray="3,2"/>
+      </svg>
+      Fragmentación
+    </div>
+  </div>
+</div>
+
+<div id="controls"></div>
+
+<div id="wrap">
+  <svg id="chart"></svg>
+</div>
+
+<div id="tooltip">
+  <div class="tt-t" id="tt-t"></div>
+  <div class="tt-n" id="tt-n"></div>
+  <div class="tt-b" id="tt-b"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// DATA  ── nodes + links in the prescribed format
+// ═══════════════════════════════════════════════════════════
+
+// family assignments for color / grouping
+const FAMILY = {
+  "Arellano_Felix":        "AF",
+  "Teo":                   "AF",
+  "Ev_AF_2006":            "AF",
+
+  "Sinaloa":               "SIN",
+  "Ev_Sin_2007":           "SIN",
+  "Beltran_Leyva":         "SIN",
+  "Ev_BL_2009":            "SIN",
+  "La_Barbie":             "SIN",
+  "Ev_BL_2011":            "SIN",
+  "La_Oficina":            "SIN",
+  "Ev_BL_2015a":           "SIN",
+  "Ev_BL_2015b":           "SIN",
+  "Ev_BL_2015c":           "SIN",
+  "2_Mil":                 "SIN",
+  "H2":                    "SIN",
+  "RT":                    "SIN",
+  "Los_Ardillos":          "SIN",
+  "Los_Rojos":             "SIN",
+  "Ev_Rojos_2017":         "SIN",
+  "CD_Sur":                "SIN",
+  "Ev_Oficina_2013":       "SIN",
+  "Los_Mazatlecos":        "SIN",
+  "Ev_Barbie_2010":        "SIN",
+  "Los_Granados":          "SIN",
+  "La_Mano_Ojos":          "SIN",
+  "CIDA":                  "SIN",
+  "Guerreros_Unidos":      "SIN",
+  "Ev_GU_2014":            "SIN",
+  "Tequileros":            "SIN",
+  "La_Barredora":          "SIN",
+  "Cartel_Pacifico_Sur":   "SIN",
+  "Cartel_Tlahuac":        "SIN",
+  "Ev_Sin_2018":           "SIN",
+  "Cartel_Caborca":        "SIN",
+  "Ev_Sin_2024":           "SIN",
+  "Los_Chapitos":          "SIN",
+  "La_Mayiza":             "SIN",
+
+  "Familia_Michoacana":    "MICH",
+  "Ev_FM_2009":            "MICH",
+  "Los_Incorregibles":     "MICH",
+  "Ev_FM_2010":            "MICH",
+  "Caballeros_Templarios": "MICH",
+  "Los_GG":                "MICH",
+  "Ev_CT_2014a":           "MICH",
+  "Ev_CT_2014b":           "MICH",
+  "Ev_CT_2014c":           "MICH",
+  "Gallito":               "MICH",
+  "Viagras":               "MICH",
+  "H3":                    "MICH",
+  "Ev_CT_2015a":           "MICH",
+  "Ev_CT_2015b":           "MICH",
+  "Ev_CT_2015c":           "MICH",
+  "Tena":                  "MICH",
+  "Pineda":                "MICH",
+  "Cenizo":                "MICH",
+  "Ev_FM_2016":            "MICH",
+  "La_Nueva_Empresa":      "MICH",
+
+  "Milenio":               "CJNG",
+  "Ev_Mil_2010a":          "CJNG",
+  "Ev_Mil_2010b":          "CJNG",
+  "CJNG":                  "CJNG",
+  "La_Resistencia":        "CJNG",
+  "Ev_CJNG_2013":          "CJNG",
+  "H3_CJNG":               "CJNG",
+  "Ev_CJNG_2016":          "CJNG",
+  "Blancos_Troya":         "CJNG",
+  "Ev_CJNG_2017":          "CJNG",
+  "Cartel_NPlaza":         "CJNG",
+  "Ev_CJNG_2019":          "CJNG",
+  "Cartel_Tepalcatepec":   "CJNG",
+
+  "Cartel_Golfo":          "GOLFO",
+  "Ev_CG_2010":            "GOLFO",
+  "Los_Zetas":             "GOLFO",
+  "Ev_CG_2013":            "GOLFO",
+  "Metros":                "GOLFO",
+  "Rojos_Golfo":           "GOLFO",
+  "Ciclones":              "GOLFO",
+  "Escorpiones":           "GOLFO",
+  "Lacoste":               "GOLFO",
+  "Fresitas":              "GOLFO",
+  "Dragones":              "GOLFO",
+  "Bravo":                 "GOLFO",
+  "Sombra":                "GOLFO",
+  "Ev_Metros_2015":        "GOLFO",
+  "Pantera":               "GOLFO",
+  "Ev_Zetas_2012":         "GOLFO",
+  "Talibanes":             "GOLFO",
+  "Ev_Zetas_2013":         "GOLFO",
+  "Cartel_Noreste":        "GOLFO",
+  "Zetas_Vieja_Escuela":   "GOLFO",
+  "Sangre_Nueva_Zetas":    "GOLFO",
+  "Ev_SNZ_2017":           "GOLFO",
+  "Tonin":                 "GOLFO",
+  "Ev_ZVE_2018":           "GOLFO",
+  "Pura_Gente_Nueva":      "GOLFO",
+  "Ev_ZVE_2020":           "GOLFO",
+  "Los_Alemanes":          "GOLFO",
+  "Ev_ZVE_2024":           "GOLFO",
+  "SJChamula":             "GOLFO",
+
+  "Union_Tepito":          "TEP",
+  "Ev_UT_2018":            "TEP",
+  "Anti_Union_Tepito":     "TEP",
+};
+
+const FAM_COLOR = {
+  "AF":    "#c04020",
+  "SIN":   "#1a6bb5",
+  "MICH":  "#7040b8",
+  "CJNG":  "#0e9455",
+  "GOLFO": "#8a7200",
+  "TEP":   "#a81848",
+};
+
+const FAM_LABEL = {
+  "AF":    "Arellano Félix",
+  "SIN":   "Sinaloa",
+  "MICH":  "Michoacana",
+  "CJNG":  "Milenio / CJNG",
+  "GOLFO": "Golfo / Zetas",
+  "TEP":   "Tepito",
+};
+
+// Each cartel/fragment: label, family, for tooltips
+const NODE_META = {
+  "Arellano_Felix":        { label:"Arellano Félix",          fam:"AF"    },
+  "Teo":                   { label:"Teo",                     fam:"AF"    },
+  "Sinaloa":               { label:"Cártel de Sinaloa",       fam:"SIN"   },
+  "Beltran_Leyva":         { label:"Beltrán Leyva",           fam:"SIN"   },
+  "La_Barbie":             { label:"La Barbie",               fam:"SIN"   },
+  "La_Oficina":            { label:"La Oficina",              fam:"SIN"   },
+  "Los_Mazatlecos":        { label:"Los Mazatlecos",          fam:"SIN"   },
+  "2_Mil":                 { label:"2 Mil",                   fam:"SIN"   },
+  "H2":                    { label:"H2",                      fam:"SIN"   },
+  "RT":                    { label:"RT",                      fam:"SIN"   },
+  "Los_Ardillos":          { label:"Los Ardillos",            fam:"SIN"   },
+  "Los_Rojos":             { label:"Los Rojos",               fam:"SIN"   },
+  "CD_Sur":                { label:"CD Sur",                  fam:"SIN"   },
+  "Los_Granados":          { label:"Los Granados",            fam:"SIN"   },
+  "La_Mano_Ojos":          { label:"La Mano con Ojos",        fam:"SIN"   },
+  "CIDA":                  { label:"CIDA",                    fam:"SIN"   },
+  "Guerreros_Unidos":      { label:"Guerreros Unidos",        fam:"SIN"   },
+  "Tequileros":            { label:"Tequileros",              fam:"SIN"   },
+  "La_Barredora":          { label:"La Barredora",            fam:"SIN"   },
+  "Cartel_Pacifico_Sur":   { label:"Cártel Pacífico Sur",     fam:"SIN"   },
+  "Cartel_Tlahuac":        { label:"Cártel de Tlahuac",       fam:"SIN"   },
+  "Cartel_Caborca":        { label:"Cártel de Caborca",       fam:"SIN"   },
+  "Los_Chapitos":          { label:"Los Chapitos",            fam:"SIN"   },
+  "La_Mayiza":             { label:"La Mayiza",               fam:"SIN"   },
+  "Familia_Michoacana":    { label:"La Familia Michoacana",   fam:"MICH"  },
+  "Los_Incorregibles":     { label:"Los Incorregibles",       fam:"MICH"  },
+  "Caballeros_Templarios": { label:"Caballeros Templarios",   fam:"MICH"  },
+  "Los_GG":                { label:"Los GG",                  fam:"MICH"  },
+  "Gallito":               { label:"Gallito",                 fam:"MICH"  },
+  "Viagras":               { label:"Viagras",                 fam:"MICH"  },
+  "H3":                    { label:"H3",                      fam:"MICH"  },
+  "Tena":                  { label:"Tena",                    fam:"MICH"  },
+  "Pineda":                { label:"Pineda",                  fam:"MICH"  },
+  "Cenizo":                { label:"Cenizo",                  fam:"MICH"  },
+  "La_Nueva_Empresa":      { label:"La Nueva Empresa",        fam:"MICH"  },
+  "Milenio":               { label:"Cártel del Milenio",      fam:"CJNG"  },
+  "CJNG":                  { label:"CJNG",                    fam:"CJNG"  },
+  "La_Resistencia":        { label:"La Resistencia",          fam:"CJNG"  },
+  "H3_CJNG":               { label:"H3 (CJNG)",               fam:"CJNG"  },
+  "Blancos_Troya":         { label:"Blancos de Troya",        fam:"CJNG"  },
+  "Cartel_NPlaza":         { label:"Cártel Nueva Plaza",      fam:"CJNG"  },
+  "Cartel_Tepalcatepec":   { label:"Cártel de Tepalcatepec",  fam:"CJNG"  },
+  "Cartel_Golfo":          { label:"Cártel del Golfo",        fam:"GOLFO" },
+  "Los_Zetas":             { label:"Los Zetas",               fam:"GOLFO" },
+  "Metros":                { label:"Metros",                  fam:"GOLFO" },
+  "Rojos_Golfo":           { label:"Rojos (Golfo)",           fam:"GOLFO" },
+  "Ciclones":              { label:"Ciclones",                fam:"GOLFO" },
+  "Escorpiones":           { label:"Escorpiones",             fam:"GOLFO" },
+  "Lacoste":               { label:"Lacoste",                 fam:"GOLFO" },
+  "Fresitas":              { label:"Fresitas",                fam:"GOLFO" },
+  "Dragones":              { label:"Dragones",                fam:"GOLFO" },
+  "Bravo":                 { label:"Bravo",                   fam:"GOLFO" },
+  "Sombra":                { label:"Sombra",                  fam:"GOLFO" },
+  "Pantera":               { label:"Pantera",                 fam:"GOLFO" },
+  "Talibanes":             { label:"Talibanes",               fam:"GOLFO" },
+  "Cartel_Noreste":        { label:"Cártel del Noreste",      fam:"GOLFO" },
+  "Zetas_Vieja_Escuela":   { label:"Zetas Vieja Escuela",     fam:"GOLFO" },
+  "Sangre_Nueva_Zetas":    { label:"Sangre Nueva Zetas",      fam:"GOLFO" },
+  "Tonin":                 { label:"Toñín",                   fam:"GOLFO" },
+  "Pura_Gente_Nueva":      { label:"Pura Gente Nueva",        fam:"GOLFO" },
+  "Los_Alemanes":          { label:"Los Alemanes",            fam:"GOLFO" },
+  "SJChamula":             { label:"Cártel San Juan Chamula",  fam:"GOLFO" },
+  "Union_Tepito":          { label:"La Unión Tepito",         fam:"TEP"   },
+  "Anti_Union_Tepito":     { label:"La Anti Unión Tepito",    fam:"TEP"   },
+};
+
+const EVENT_META = {
+  "Ev_AF_2006":   { label:"Det. F.J. Arellano Félix",          year:2006, etype:"detention" },
+  "Ev_Sin_2007":  { label:"Det. Alfredo Beltrán Leyva",        year:2007, etype:"detention" },
+  "Ev_BL_2009":   { label:"Asesinat. Arturo Beltrán Leyva",    year:2009, etype:"murder"    },
+  "Ev_Barbie_2010":{ label:"Det. La Barbie",                   year:2010, etype:"detention" },
+  "Ev_BL_2011":   { label:"Conflicto interno BL",              year:2011, etype:"internal"  },
+  "Ev_Oficina_2013":{ label:"Conflicto interno La Oficina",    year:2013, etype:"internal"  },
+  "Ev_BL_2015a":  { label:"Conflicto interno BL",              year:2015, etype:"internal"  },
+  "Ev_BL_2015b":  { label:"Conflicto interno BL",              year:2015, etype:"internal"  },
+  "Ev_BL_2015c":  { label:"Conflicto interno BL",              year:2015, etype:"internal"  },
+  "Ev_GU_2014":   { label:"Conflicto Guerreros Unidos",        year:2014, etype:"internal"  },
+  "Ev_Rojos_2017":{ label:"Conflicto Los Rojos",               year:2017, etype:"internal"  },
+  "Ev_Sin_2018":  { label:"Conflicto interno Sinaloa",         year:2018, etype:"internal"  },
+  "Ev_Sin_2024":  { label:"Det. Ismael Zambada",               year:2024, etype:"detention" },
+  "Ev_FM_2009":   { label:"Conflicto Fam. Michoacana",         year:2009, etype:"internal"  },
+  "Ev_FM_2010":   { label:"Muerte de Nazario Moreno",          year:2010, etype:"death"     },
+  "Ev_CT_2014a":  { label:"Conflicto Caballeros Templarios",   year:2014, etype:"internal"  },
+  "Ev_CT_2014b":  { label:"Conflicto Caballeros Templarios",   year:2014, etype:"internal"  },
+  "Ev_CT_2014c":  { label:"Conflicto Caballeros Templarios",   year:2014, etype:"internal"  },
+  "Ev_CT_2015a":  { label:"Det. la Tuta",                      year:2015, etype:"detention" },
+  "Ev_CT_2015b":  { label:"Det. la Tuta",                      year:2015, etype:"detention" },
+  "Ev_CT_2015c":  { label:"Det. la Tuta",                      year:2015, etype:"detention" },
+  "Ev_FM_2016":   { label:"Conflicto Fam. Michoacana",         year:2016, etype:"internal"  },
+  "Ev_Mil_2010a": { label:"Det. los Valencia",                 year:2010, etype:"detention" },
+  "Ev_Mil_2010b": { label:"Det. los Valencia",                 year:2010, etype:"detention" },
+  "Ev_CJNG_2013": { label:"Conflicto CJNG",                    year:2013, etype:"internal"  },
+  "Ev_CJNG_2016": { label:"Conflicto CJNG",                    year:2016, etype:"internal"  },
+  "Ev_CJNG_2017": { label:"Conflicto CJNG",                    year:2017, etype:"internal"  },
+  "Ev_CJNG_2019": { label:"Conflicto CJNG",                    year:2019, etype:"internal"  },
+  "Ev_CG_2010":   { label:"Conflicto Cártel del Golfo",        year:2010, etype:"internal"  },
+  "Ev_CG_2013":   { label:"Det. Costilla & Ramírez Treviño",   year:2013, etype:"detention" },
+  "Ev_Metros_2015":{ label:"Conflicto Metros",                 year:2015, etype:"internal"  },
+  "Ev_Zetas_2012":{ label:"Muerte H. Lazcano",                 year:2012, etype:"murder"    },
+  "Ev_Zetas_2013":{ label:"Det. M.Á. Treviño Morales",         year:2013, etype:"detention" },
+  "Ev_SNZ_2017":  { label:"Conflicto Sangre Nueva Zetas",      year:2017, etype:"internal"  },
+  "Ev_ZVE_2018":  { label:"Conflicto Zetas Vieja Escuela",     year:2018, etype:"internal"  },
+  "Ev_ZVE_2020":  { label:"Conflicto Zetas Vieja Escuela",     year:2020, etype:"internal"  },
+  "Ev_ZVE_2024":  { label:"Conflicto Zetas Vieja Escuela",     year:2024, etype:"internal"  },
+  "Ev_UT_2018":   { label:"Det. Roberto Moyado Esparza",       year:2018, etype:"detention" },
+};
+
+// Color per event type
+const EC = {
+  detention: "#d4780a",
+  murder:    "#a00010",
+  death:     "#555577",
+  internal:  "#4466bb",
+};
+
+// ─── NODE DEFINITIONS ───────────────────────────────────────────
+// tipo: "cartel" | "evento" | "fragmento"
+// year_start, year_end (null = present=2024)
+// parent: id of parent node
+// The hierarchical Y position is assigned by groups below.
+
+const nodes = [
+  // ── Arellano Félix ──────────────────────────────────────────
+  { id:"Arellano_Felix",       tipo:"cartel",     year_start:2005, year_end:2024, parent:null },
+  { id:"Ev_AF_2006",           tipo:"evento",     year_start:2006,               parent:"Arellano_Felix" },
+  { id:"Teo",                  tipo:"fragmento",  year_start:2006, year_end:2024, parent:"Ev_AF_2006" },
+
+  // ── Sinaloa ─────────────────────────────────────────────────
+  { id:"Sinaloa",              tipo:"cartel",     year_start:2005, year_end:2024, parent:null },
+  { id:"Ev_Sin_2007",          tipo:"evento",     year_start:2007,               parent:"Sinaloa" },
+  { id:"Beltran_Leyva",        tipo:"fragmento",  year_start:2007, year_end:2024, parent:"Ev_Sin_2007" },
+    { id:"Ev_BL_2009",         tipo:"evento",     year_start:2009,               parent:"Beltran_Leyva" },
+    { id:"La_Barbie",          tipo:"fragmento",  year_start:2009, year_end:2024, parent:"Ev_BL_2009" },
+      { id:"Ev_Barbie_2010",   tipo:"evento",     year_start:2010,               parent:"La_Barbie" },
+      { id:"Los_Granados",     tipo:"fragmento",  year_start:2010, year_end:2024, parent:"Ev_Barbie_2010" },
+      { id:"La_Mano_Ojos",     tipo:"fragmento",  year_start:2010, year_end:2024, parent:"Ev_Barbie_2010" },
+      { id:"CIDA",             tipo:"fragmento",  year_start:2010, year_end:2024, parent:"Ev_Barbie_2010" },
+      { id:"Guerreros_Unidos", tipo:"fragmento",  year_start:2010, year_end:2024, parent:"Ev_Barbie_2010" },
+        { id:"Ev_GU_2014",     tipo:"evento",     year_start:2014,               parent:"Guerreros_Unidos" },
+        { id:"Tequileros",     tipo:"fragmento",  year_start:2014, year_end:2024, parent:"Ev_GU_2014" },
+      { id:"La_Barredora",     tipo:"fragmento",  year_start:2010, year_end:2024, parent:"Ev_Barbie_2010" },
+      { id:"Cartel_Pacifico_Sur",tipo:"fragmento",year_start:2010, year_end:2024, parent:"Ev_Barbie_2010" },
+      { id:"Cartel_Tlahuac",   tipo:"fragmento",  year_start:2010, year_end:2024, parent:"Ev_Barbie_2010" },
+    { id:"Los_Rojos",          tipo:"fragmento",  year_start:2009, year_end:2024, parent:"Ev_BL_2009" },
+      { id:"Ev_Rojos_2017",    tipo:"evento",     year_start:2017,               parent:"Los_Rojos" },
+      { id:"CD_Sur",           tipo:"fragmento",  year_start:2017, year_end:2024, parent:"Ev_Rojos_2017" },
+    { id:"Los_Ardillos",       tipo:"fragmento",  year_start:2009, year_end:2024, parent:"Ev_BL_2009" },
+    { id:"Ev_BL_2011",         tipo:"evento",     year_start:2011,               parent:"Beltran_Leyva" },
+    { id:"La_Oficina",         tipo:"fragmento",  year_start:2011, year_end:2024, parent:"Ev_BL_2011" },
+      { id:"Ev_Oficina_2013",  tipo:"evento",     year_start:2013,               parent:"La_Oficina" },
+      { id:"Los_Mazatlecos",   tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_Oficina_2013" },
+    { id:"Ev_BL_2015a",        tipo:"evento",     year_start:2015,               parent:"Beltran_Leyva" },
+    { id:"2_Mil",              tipo:"fragmento",  year_start:2015, year_end:2024, parent:"Ev_BL_2015a" },
+    { id:"H2",                 tipo:"fragmento",  year_start:2015, year_end:2024, parent:"Ev_BL_2015a" },
+    { id:"RT",                 tipo:"fragmento",  year_start:2015, year_end:2024, parent:"Ev_BL_2015a" },
+  { id:"Ev_Sin_2018",          tipo:"evento",     year_start:2018,               parent:"Sinaloa" },
+  { id:"Cartel_Caborca",       tipo:"fragmento",  year_start:2018, year_end:2024, parent:"Ev_Sin_2018" },
+  { id:"Ev_Sin_2024",          tipo:"evento",     year_start:2024,               parent:"Sinaloa" },
+  { id:"Los_Chapitos",         tipo:"fragmento",  year_start:2024, year_end:2024, parent:"Ev_Sin_2024" },
+  { id:"La_Mayiza",            tipo:"fragmento",  year_start:2024, year_end:2024, parent:"Ev_Sin_2024" },
+
+  // ── Familia Michoacana ───────────────────────────────────────
+  { id:"Familia_Michoacana",   tipo:"cartel",     year_start:2005, year_end:2024, parent:null },
+  { id:"Ev_FM_2009",           tipo:"evento",     year_start:2009,               parent:"Familia_Michoacana" },
+  { id:"Los_Incorregibles",    tipo:"fragmento",  year_start:2009, year_end:2024, parent:"Ev_FM_2009" },
+  { id:"Ev_FM_2010",           tipo:"evento",     year_start:2010,               parent:"Familia_Michoacana" },
+  { id:"Caballeros_Templarios",tipo:"fragmento",  year_start:2010, year_end:2024, parent:"Ev_FM_2010" },
+    { id:"Ev_CT_2014a",        tipo:"evento",     year_start:2014,               parent:"Caballeros_Templarios" },
+    { id:"Gallito",            tipo:"fragmento",  year_start:2014, year_end:2024, parent:"Ev_CT_2014a" },
+    { id:"Ev_CT_2014b",        tipo:"evento",     year_start:2014,               parent:"Caballeros_Templarios" },
+    { id:"Viagras",            tipo:"fragmento",  year_start:2014, year_end:2024, parent:"Ev_CT_2014b" },
+    { id:"Ev_CT_2014c",        tipo:"evento",     year_start:2014,               parent:"Caballeros_Templarios" },
+    { id:"H3",                 tipo:"fragmento",  year_start:2014, year_end:2024, parent:"Ev_CT_2014c" },
+    { id:"Ev_CT_2015a",        tipo:"evento",     year_start:2015,               parent:"Caballeros_Templarios" },
+    { id:"Tena",               tipo:"fragmento",  year_start:2015, year_end:2024, parent:"Ev_CT_2015a" },
+    { id:"Ev_CT_2015b",        tipo:"evento",     year_start:2015,               parent:"Caballeros_Templarios" },
+    { id:"Pineda",             tipo:"fragmento",  year_start:2015, year_end:2024, parent:"Ev_CT_2015b" },
+    { id:"Ev_CT_2015c",        tipo:"evento",     year_start:2015,               parent:"Caballeros_Templarios" },
+    { id:"Cenizo",             tipo:"fragmento",  year_start:2015, year_end:2024, parent:"Ev_CT_2015c" },
+  { id:"Los_GG",               tipo:"fragmento",  year_start:2010, year_end:2024, parent:"Ev_FM_2010" },
+  { id:"Ev_FM_2016",           tipo:"evento",     year_start:2016,               parent:"Familia_Michoacana" },
+  { id:"La_Nueva_Empresa",     tipo:"fragmento",  year_start:2016, year_end:2024, parent:"Ev_FM_2016" },
+
+  // ── Milenio / CJNG ──────────────────────────────────────────
+  { id:"Milenio",              tipo:"cartel",     year_start:2005, year_end:2024, parent:null },
+  { id:"Ev_Mil_2010a",         tipo:"evento",     year_start:2010,               parent:"Milenio" },
+  { id:"CJNG",                 tipo:"fragmento",  year_start:2010, year_end:2024, parent:"Ev_Mil_2010a" },
+    { id:"Ev_CJNG_2013",       tipo:"evento",     year_start:2013,               parent:"CJNG" },
+    { id:"H3_CJNG",            tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_CJNG_2013" },
+    { id:"Ev_CJNG_2016",       tipo:"evento",     year_start:2016,               parent:"CJNG" },
+    { id:"Blancos_Troya",      tipo:"fragmento",  year_start:2016, year_end:2024, parent:"Ev_CJNG_2016" },
+    { id:"Ev_CJNG_2017",       tipo:"evento",     year_start:2017,               parent:"CJNG" },
+    { id:"Cartel_NPlaza",      tipo:"fragmento",  year_start:2017, year_end:2024, parent:"Ev_CJNG_2017" },
+    { id:"Ev_CJNG_2019",       tipo:"evento",     year_start:2019,               parent:"CJNG" },
+    { id:"Cartel_Tepalcatepec",tipo:"fragmento",  year_start:2019, year_end:2024, parent:"Ev_CJNG_2019" },
+  { id:"Ev_Mil_2010b",         tipo:"evento",     year_start:2010,               parent:"Milenio" },
+  { id:"La_Resistencia",       tipo:"fragmento",  year_start:2010, year_end:2024, parent:"Ev_Mil_2010b" },
+
+  // ── Cártel del Golfo / Zetas ────────────────────────────────
+  { id:"Cartel_Golfo",         tipo:"cartel",     year_start:2005, year_end:2024, parent:null },
+  { id:"Ev_CG_2010",           tipo:"evento",     year_start:2010,               parent:"Cartel_Golfo" },
+  { id:"Los_Zetas",            tipo:"fragmento",  year_start:2010, year_end:2024, parent:"Ev_CG_2010" },
+    { id:"Ev_Zetas_2012",      tipo:"evento",     year_start:2012,               parent:"Los_Zetas" },
+    { id:"Talibanes",          tipo:"fragmento",  year_start:2012, year_end:2024, parent:"Ev_Zetas_2012" },
+    { id:"Ev_Zetas_2013",      tipo:"evento",     year_start:2013,               parent:"Los_Zetas" },
+    { id:"Cartel_Noreste",     tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_Zetas_2013" },
+    { id:"Zetas_Vieja_Escuela",tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_Zetas_2013" },
+      { id:"Ev_ZVE_2018",      tipo:"evento",     year_start:2018,               parent:"Zetas_Vieja_Escuela" },
+      { id:"Pura_Gente_Nueva", tipo:"fragmento",  year_start:2018, year_end:2024, parent:"Ev_ZVE_2018" },
+      { id:"Ev_ZVE_2020",      tipo:"evento",     year_start:2020,               parent:"Zetas_Vieja_Escuela" },
+      { id:"Los_Alemanes",     tipo:"fragmento",  year_start:2020, year_end:2024, parent:"Ev_ZVE_2020" },
+      { id:"Ev_ZVE_2024",      tipo:"evento",     year_start:2024,               parent:"Zetas_Vieja_Escuela" },
+      { id:"SJChamula",        tipo:"fragmento",  year_start:2024, year_end:2024, parent:"Ev_ZVE_2024" },
+    { id:"Sangre_Nueva_Zetas", tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_Zetas_2013" },
+      { id:"Ev_SNZ_2017",      tipo:"evento",     year_start:2017,               parent:"Sangre_Nueva_Zetas" },
+      { id:"Tonin",            tipo:"fragmento",  year_start:2017, year_end:2024, parent:"Ev_SNZ_2017" },
+  { id:"Ev_CG_2013",           tipo:"evento",     year_start:2013,               parent:"Cartel_Golfo" },
+  { id:"Metros",               tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_CG_2013" },
+    { id:"Ev_Metros_2015",     tipo:"evento",     year_start:2015,               parent:"Metros" },
+    { id:"Pantera",            tipo:"fragmento",  year_start:2015, year_end:2024, parent:"Ev_Metros_2015" },
+  { id:"Rojos_Golfo",          tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_CG_2013" },
+  { id:"Ciclones",             tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_CG_2013" },
+  { id:"Escorpiones",          tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_CG_2013" },
+  { id:"Lacoste",              tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_CG_2013" },
+  { id:"Fresitas",             tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_CG_2013" },
+  { id:"Dragones",             tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_CG_2013" },
+  { id:"Bravo",                tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_CG_2013" },
+  { id:"Sombra",               tipo:"fragmento",  year_start:2013, year_end:2024, parent:"Ev_CG_2013" },
+
+  // ── La Unión Tepito ─────────────────────────────────────────
+  { id:"Union_Tepito",         tipo:"cartel",     year_start:2005, year_end:2024, parent:null },
+  { id:"Ev_UT_2018",           tipo:"evento",     year_start:2018,               parent:"Union_Tepito" },
+  { id:"Anti_Union_Tepito",    tipo:"fragmento",  year_start:2018, year_end:2024, parent:"Ev_UT_2018" },
+];
+
+// links derived from nodes
+const links = [];
+nodes.forEach(n => {
+  if (n.parent) links.push({ source: n.parent, target: n.id });
+});
+
+// ═══════════════════════════════════════════════════════════
+// Y POSITION ASSIGNMENT
+// Assign explicit Y positions:
+//   - Root cartels: anchored at their family band center
+//   - Each child: spread below its parent, ordered by year_start then id
+// We'll assign a "row index" to each non-event node, then event nodes
+// get the Y of their parent.
+// ═══════════════════════════════════════════════════════════
+
+// Build id → node map
+const nodeMap = {};
+nodes.forEach(n => { nodeMap[n.id] = n; });
+
+// Get children of a node (non-event direct children)
+function childFragments(parentId) {
+  return nodes.filter(n => n.parent === parentId && n.tipo !== "evento");
+}
+function childEvents(parentId) {
+  return nodes.filter(n => n.parent === parentId && n.tipo === "evento");
+}
+
+// Flatten in DFS order, skipping events (they get parent's Y)
+// Returns array of ids in display order
+function dfsOrder(rootId) {
+  const result = [];
+  function visit(id) {
+    const n = nodeMap[id];
+    if (!n || n.tipo === "evento") return;
+    result.push(id);
+    // children: first events' fragment children, then direct fragments
+    const evChildren = childEvents(id);
+    const fragChildren = childFragments(id);
+    // fragments directly parented to events
+    evChildren.forEach(ev => {
+      const evFrags = childFragments(ev.id);
+      evFrags.sort((a,b) => a.year_start - b.year_start);
+      evFrags.forEach(f => visit(f.id));
+    });
+    // fragments directly parented to this node
+    fragChildren.sort((a,b) => a.year_start - b.year_start);
+    fragChildren.forEach(f => visit(f.id));
+  }
+  visit(rootId);
+  return result;
+}
+
+// Families in order
+const FAMILY_ROOTS = [
+  "Arellano_Felix",
+  "Sinaloa",
+  "Familia_Michoacana",
+  "Milenio",
+  "Cartel_Golfo",
+  "Union_Tepito",
+];
+
+const ROW_H = 22; // px per row
+const FAM_GAP = 28; // extra gap between families
+const TOP_PAD = 20;
+
+const rowY = {}; // id → Y center
+let curRow = 0;
+const famBands = []; // { fam, yStart, yEnd, color, label }
+
+FAMILY_ROOTS.forEach((root, fi) => {
+  const order = dfsOrder(root);
+  const famStart = TOP_PAD + curRow * ROW_H + (fi > 0 ? fi * FAM_GAP : 0);
+  order.forEach(id => {
+    rowY[id] = TOP_PAD + curRow * ROW_H + fi * FAM_GAP;
+    curRow++;
+  });
+  const famEnd = TOP_PAD + curRow * ROW_H + fi * FAM_GAP;
+  const fam = FAMILY[root];
+  famBands.push({ fam, yStart: famStart, yEnd: famEnd - ROW_H/2, color: FAM_COLOR[fam], label: FAM_LABEL[fam], root });
+});
+
+// Event nodes: Y = parent's Y
+nodes.forEach(n => {
+  if (n.tipo === "evento") {
+    rowY[n.id] = rowY[n.parent] ?? 0;
+  }
+});
+
+const TOTAL_ROWS = curRow;
+const CHART_H_DATA = TOP_PAD + TOTAL_ROWS * ROW_H + FAMILY_ROOTS.length * FAM_GAP + 80;
+
+// ═══════════════════════════════════════════════════════════
+// LAYOUT CONSTANTS
+// ═══════════════════════════════════════════════════════════
+const MARGIN = { top: 10, right: 60, bottom: 50, left: 200 };
+const YEAR_S = 2005, YEAR_E = 2024;
+
+// ═══════════════════════════════════════════════════════════
+// BUILD UI
+// ═══════════════════════════════════════════════════════════
+
+// Measure header + controls height
+function getOffsetTop() {
+  const hdr = document.getElementById('header');
+  const ctl = document.getElementById('controls');
+  return (hdr?.offsetHeight || 58) + (ctl?.offsetHeight || 32);
+}
+
+// Filter state
+let activeFilters = new Set(["detention","murder","death","internal"]);
+let activeFamilies = new Set(FAMILY_ROOTS.map(r => FAMILY[r]));
+
+// Build family filter buttons
+function buildControls() {
+  const ctrl = document.getElementById('controls');
+  ctrl.innerHTML = '';
+
+  // Type filter buttons
+  const types = [
+    { key:"detention", label:"Detención",         color:"#d4780a" },
+    { key:"murder",    label:"Asesinato",          color:"#a00010" },
+    { key:"death",     label:"Muerte",             color:"#555577" },
+    { key:"internal",  label:"Conflicto interno",  color:"#4466bb" },
+  ];
+  const tspan = document.createElement('span');
+  tspan.style.cssText = "font-family:'DM Mono',monospace;font-size:0.5rem;color:var(--ink3);text-transform:uppercase;letter-spacing:.08em;margin-right:4px";
+  tspan.textContent = 'Evento:';
+  ctrl.appendChild(tspan);
+
+  types.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'cb' + (activeFilters.has(t.key) ? ' on' : '');
+    b.textContent = t.label;
+    b.style.borderColor = t.color + '88';
+    b.onclick = () => {
+      if (activeFilters.has(t.key)) activeFilters.delete(t.key);
+      else activeFilters.add(t.key);
+      b.classList.toggle('on');
+      drawChart();
+    };
+    ctrl.appendChild(b);
+  });
+
+  const sep = document.createElement('div');
+  sep.className = 'sep';
+  ctrl.appendChild(sep);
+
+  // Family filter
+  const fspan = document.createElement('span');
+  fspan.style.cssText = "font-family:'DM Mono',monospace;font-size:0.5rem;color:var(--ink3);text-transform:uppercase;letter-spacing:.08em;margin-right:4px";
+  fspan.textContent = 'Familia:';
+  ctrl.appendChild(fspan);
+
+  FAMILY_ROOTS.forEach(root => {
+    const fam = FAMILY[root];
+    const b = document.createElement('button');
+    b.className = 'cb-fam' + (activeFamilies.has(fam) ? ' on' : '');
+    b.textContent = FAM_LABEL[fam];
+    b.style.borderColor = FAM_COLOR[fam] + 'aa';
+    if (activeFamilies.has(fam)) { b.style.background = FAM_COLOR[fam]; }
+    b.onclick = () => {
+      if (activeFamilies.has(fam)) activeFamilies.delete(fam);
+      else activeFamilies.add(fam);
+      b.classList.toggle('on');
+      if (b.classList.contains('on')) b.style.background = FAM_COLOR[fam];
+      else b.style.background = 'none';
+      drawChart();
+    };
+    ctrl.appendChild(b);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// DRAW
+// ═══════════════════════════════════════════════════════════
+
+function drawChart() {
+  const offsetTop = getOffsetTop();
+  const wrap = document.getElementById('wrap');
+  wrap.style.top = offsetTop + 'px';
+
+  const W = Math.max(window.innerWidth, 1100);
+  const innerW = W - MARGIN.left - MARGIN.right;
+  const innerH = CHART_H_DATA;
+  const svgH = innerH + MARGIN.top + MARGIN.bottom;
+
+  const svg = d3.select('#chart')
+    .attr('width', W)
+    .attr('height', svgH);
+
+  svg.selectAll('*').remove();
+
+  // X scale
+  const xScale = d3.scaleLinear()
+    .domain([YEAR_S, YEAR_E])
+    .range([0, innerW]);
+
+  const g = svg.append('g')
+    .attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
+
+  // ── Background family bands
+  famBands.forEach(fb => {
+    if (!activeFamilies.has(fb.fam)) return;
+    g.append('rect')
+      .attr('x', -MARGIN.left)
+      .attr('y', fb.yStart - ROW_H/2 - 4)
+      .attr('width', W)
+      .attr('height', fb.yEnd - fb.yStart + ROW_H + 8)
+      .attr('fill', fb.color)
+      .attr('opacity', 0.04);
+
+    // Family label in left margin
+    g.append('text')
+      .attr('x', -MARGIN.left + 8)
+      .attr('y', (fb.yStart + fb.yEnd) / 2)
+      .attr('dominant-baseline', 'middle')
+      .attr('font-family', "'DM Mono', monospace")
+      .attr('font-size', '9px')
+      .attr('text-transform', 'uppercase')
+      .attr('letter-spacing', '0.08em')
+      .attr('fill', fb.color)
+      .attr('opacity', 0.7)
+      .text(fb.label.toUpperCase())
+      .style('text-transform', 'uppercase');
+  });
+
+  // ── Grid lines
+  const gridG = g.append('g').attr('class','grid');
+  for (let y = YEAR_S; y <= YEAR_E; y++) {
+    const x = xScale(y);
+    gridG.append('line')
+      .attr('x1', x).attr('y1', -10)
+      .attr('x2', x).attr('y2', innerH + 10)
+      .attr('stroke', y % 5 === 0 ? 'rgba(26,26,36,0.1)' : 'rgba(26,26,36,0.04)')
+      .attr('stroke-width', y % 5 === 0 ? 1 : 0.5);
+  }
+
+  // ── Visible node ids
+  const visibleNodeIds = new Set();
+  nodes.forEach(n => {
+    const fam = FAMILY[n.id];
+    if (!fam || !activeFamilies.has(fam)) return;
+    if (n.tipo === "evento") {
+      const em = EVENT_META[n.id];
+      if (em && !activeFilters.has(em.etype)) return;
+    }
+    visibleNodeIds.add(n.id);
+  });
+
+  // ── Draw horizontal timeline lines (duration bars)
+  const linesG = g.append('g').attr('class','lines');
+  nodes.forEach(n => {
+    if (n.tipo === "evento") return;
+    if (!visibleNodeIds.has(n.id)) return;
+    const y = rowY[n.id];
+    const x1 = xScale(n.year_start);
+    const x2 = xScale(n.year_end ?? YEAR_E);
+    const fam = FAMILY[n.id];
+    const col = FAM_COLOR[fam] || '#444';
+
+    linesG.append('line')
+      .attr('x1', x1).attr('y1', y)
+      .attr('x2', x2).attr('y2', y)
+      .attr('stroke', col)
+      .attr('stroke-width', n.tipo === 'cartel' ? 3.5 : 2)
+      .attr('stroke-opacity', n.tipo === 'cartel' ? 0.85 : 0.6)
+      .attr('stroke-linecap', 'round');
+  });
+
+  // ── Draw fragmentation connector lines
+  // For each event node: line from parent timeline → event → fragment start node
+  const connG = g.append('g').attr('class','connectors');
+  nodes.forEach(ev => {
+    if (ev.tipo !== "evento") return;
+    if (!visibleNodeIds.has(ev.id)) return;
+    const em = EVENT_META[ev.id];
+    if (!em) return;
+    const col = EC[em.etype] || '#888';
+    const evX = xScale(em.year);
+    const evY = rowY[ev.parent];
+
+    // Get fragment children of this event
+    const fragChildren = nodes.filter(n => n.parent === ev.id && n.tipo === "fragmento");
+    fragChildren.forEach(fc => {
+      if (!visibleNodeIds.has(fc.id)) return;
+      const fcY = rowY[fc.id];
+      const fcX = xScale(fc.year_start);
+
+      // Diagonal connector: from (evX, evY) to (fcX, fcY)
+      connG.append('line')
+        .attr('x1', evX).attr('y1', evY)
+        .attr('x2', fcX).attr('y2', fcY)
+        .attr('stroke', col)
+        .attr('stroke-width', 1.2)
+        .attr('stroke-opacity', 0.65)
+        .attr('stroke-dasharray', em.etype === 'detention' ? 'none' : '4,2');
+    });
+  });
+
+  // ── Draw event nodes (diamonds)
+  const eventsG = g.append('g').attr('class','event-nodes');
+  nodes.forEach(ev => {
+    if (ev.tipo !== "evento") return;
+    if (!visibleNodeIds.has(ev.id)) return;
+    const em = EVENT_META[ev.id];
+    if (!em) return;
+    const col = EC[em.etype] || '#888';
+    const x = xScale(em.year);
+    const y = rowY[ev.parent];
+    const s = 5; // half-size of diamond
+
+    const evG = eventsG.append('g')
+      .attr('transform', `translate(${x},${y})`)
+      .style('cursor', 'pointer');
+
+    evG.append('polygon')
+      .attr('points', `0,${-s} ${s},0 0,${s} ${-s},0`)
+      .attr('fill', col)
+      .attr('stroke', 'white')
+      .attr('stroke-width', 0.8)
+      .attr('opacity', 0.9);
+
+    evG
+      .on('mouseenter', (e) => showTT(e, 'evento', ev.id, em))
+      .on('mousemove', moveTT)
+      .on('mouseleave', hideTT);
+  });
+
+  // ── Draw cartel + fragment nodes (circles)
+  const nodesG = g.append('g').attr('class','main-nodes');
+  nodes.forEach(n => {
+    if (n.tipo === "evento") return;
+    if (!visibleNodeIds.has(n.id)) return;
+    const y = rowY[n.id];
+    const x = xScale(n.year_start);
+    const fam = FAMILY[n.id];
+    const col = FAM_COLOR[fam] || '#444';
+    const r = n.tipo === 'cartel' ? 7 : 5;
+    const meta = NODE_META[n.id];
+
+    const ng = nodesG.append('g')
+      .attr('transform', `translate(${x},${y})`)
+      .style('cursor', 'pointer');
+
+    // Drop shadow for cartels
+    if (n.tipo === 'cartel') {
+      ng.append('circle')
+        .attr('r', r + 2)
+        .attr('fill', col)
+        .attr('opacity', 0.18)
+        .attr('cx', 1).attr('cy', 1);
+    }
+
+    ng.append('circle')
+      .attr('r', r)
+      .attr('fill', n.tipo === 'cartel' ? col : 'white')
+      .attr('stroke', col)
+      .attr('stroke-width', n.tipo === 'cartel' ? 0 : 1.8)
+      .attr('opacity', 0.92);
+
+    // Inner dot for fragments
+    if (n.tipo === 'fragmento') {
+      ng.append('circle')
+        .attr('r', 2)
+        .attr('fill', col)
+        .attr('opacity', 0.7);
+    }
+
+    ng
+      .on('mouseenter', (e) => showTT(e, n.tipo, n.id, null))
+      .on('mousemove', moveTT)
+      .on('mouseleave', hideTT);
+  });
+
+  // ── Labels for non-event nodes
+  const labelsG = g.append('g').attr('class','labels');
+  nodes.forEach(n => {
+    if (n.tipo === "evento") return;
+    if (!visibleNodeIds.has(n.id)) return;
+    const y = rowY[n.id];
+    const x = xScale(n.year_start);
+    const meta = NODE_META[n.id];
+    if (!meta) return;
+    const fam = FAMILY[n.id];
+    const col = FAM_COLOR[fam] || '#444';
+    const r = n.tipo === 'cartel' ? 7 : 5;
+
+    labelsG.append('text')
+      .attr('x', x + r + 4)
+      .attr('y', y)
+      .attr('dominant-baseline', 'middle')
+      .attr('font-family', "'Barlow Condensed', sans-serif")
+      .attr('font-size', n.tipo === 'cartel' ? '11px' : '9.5px')
+      .attr('font-weight', n.tipo === 'cartel' ? '700' : '500')
+      .attr('fill', col)
+      .attr('opacity', n.tipo === 'cartel' ? 1 : 0.85)
+      .text(meta.label);
+  });
+
+  // ── X Axis
+  const axisG = g.append('g')
+    .attr('transform', `translate(0, ${innerH + 20})`);
+
+  const axis = d3.axisBottom(xScale)
+    .tickValues(d3.range(YEAR_S, YEAR_E + 1))
+    .tickFormat(d => String(d))
+    .tickSize(6);
+
+  axisG.call(axis);
+
+  axisG.select('.domain')
+    .attr('stroke', 'rgba(26,26,36,0.3)')
+    .attr('stroke-width', 1.5);
+
+  axisG.selectAll('.tick line')
+    .attr('stroke', 'rgba(26,26,36,0.25)');
+
+  axisG.selectAll('.tick text')
+    .attr('font-family', "'DM Mono', monospace")
+    .attr('font-size', '10px')
+    .attr('fill', 'var(--ink2)')
+    .attr('letter-spacing', '0.04em');
+
+  // ── Left margin: sticky labels for nodes not easily readable
+  // (We position labels with x offset already; this is handled above)
+
+  // ── Attribution
+  g.append('text')
+    .attr('x', innerW)
+    .attr('y', innerH + 48)
+    .attr('text-anchor', 'end')
+    .attr('font-family', "'DM Mono', monospace")
+    .attr('font-size', '8px')
+    .attr('fill', 'var(--ink3)')
+    .text('Efecto Kingpin · Fragmentación del Crimen Organizado · 2005–2024');
+}
+
+// ═══════════════════════════════════════════════════════════
+// TOOLTIP
+// ═══════════════════════════════════════════════════════════
+const ttEl = document.getElementById('tooltip');
+const ETYPE_LABEL = { detention:"Detención", murder:"Asesinato", death:"Muerte", internal:"Conflicto interno" };
+
+function showTT(e, tipo, id, evMeta) {
+  const t = document.getElementById('tt-t');
+  const n = document.getElementById('tt-n');
+  const b = document.getElementById('tt-b');
+
+  if (tipo === 'evento' && evMeta) {
+    t.textContent = `● EVENTO · ${ETYPE_LABEL[evMeta.etype]?.toUpperCase() || ''}`;
+    t.style.color = EC[evMeta.etype] + 'cc';
+    n.textContent = evMeta.label;
+    b.textContent = `Año: ${evMeta.year}`;
+  } else {
+    const meta = NODE_META[id];
+    const fam = FAMILY[id];
+    const col = FAM_COLOR[fam] || '#fff';
+    t.style.color = col + 'cc';
+    if (tipo === 'cartel') {
+      t.textContent = '● CÁRTEL MATRIZ';
+      n.textContent = meta?.label || id;
+      const nd = nodeMap[id];
+      b.textContent = `Activo desde ${nd?.year_start || '?'} · Familia: ${FAM_LABEL[fam] || fam}`;
+    } else {
+      t.textContent = '● FRAGMENTO';
+      n.textContent = meta?.label || id;
+      const nd = nodeMap[id];
+      // find originating event
+      const parentEv = nodes.find(x => x.id === nd?.parent && x.tipo === 'evento');
+      const em = parentEv ? EVENT_META[parentEv.id] : null;
+      b.innerHTML = `Origen: ${FAMILY[nd?.parent] ? (NODE_META[nd?.parent]?.label || nd?.parent) : '—'}<br>` +
+        (em ? `Evento: ${em.label} (${em.year})` : `Año: ${nd?.year_start}`);
+    }
+  }
+
+  ttEl.classList.add('on');
+  moveTT(e);
+}
+function moveTT(e) {
+  const x = e.clientX, y = e.clientY;
+  const tw = 260;
+  ttEl.style.left = (x + tw + 16 > window.innerWidth ? x - tw - 8 : x + 14) + 'px';
+  ttEl.style.top  = (y + 4) + 'px';
+}
+function hideTT() { ttEl.classList.remove('on'); }
+
+// ═══════════════════════════════════════════════════════════
+// INIT + RESIZE
+// ═══════════════════════════════════════════════════════════
+function positionControls() {
+  const hdr = document.getElementById('header');
+  document.getElementById('controls').style.top = (hdr.offsetHeight) + 'px';
+}
+
+buildControls();
+positionControls();
+drawChart();
+window.addEventListener('resize', () => { positionControls(); drawChart(); });
+</script>
+</body>
+</html>
