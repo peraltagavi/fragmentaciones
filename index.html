@@ -687,35 +687,65 @@ function getOffsetTop() {
 }
 
 // Filter state
-let activeFilters = new Set(["detention","murder","death","internal"]);
-let activeFamilies = new Set(FAMILY_ROOTS.map(r => FAMILY[r]));
+// null = mostrar todos; string = mostrar solo ese
+let activeEventFilter = null;   // null | "detention" | "murder" | "death" | "internal"
+let activeFamilyFilter = null;  // null | fam key
+
+// Derived sets used by drawChart
+function getActiveFilters() {
+  if (activeEventFilter === null) return new Set(["detention","murder","death","internal"]);
+  return new Set([activeEventFilter]);
+}
+function getActiveFamilies() {
+  if (activeFamilyFilter === null) return new Set(FAMILY_ROOTS.map(r => FAMILY[r]));
+  return new Set([activeFamilyFilter]);
+}
 
 // Build family filter buttons
 function buildControls() {
   const ctrl = document.getElementById('controls');
   ctrl.innerHTML = '';
 
-  // Type filter buttons
+  // ── Event type buttons (exclusive: click activates only that, click again deactivates)
   const types = [
     { key:"detention", label:"Detención",         color:"#d4780a" },
     { key:"murder",    label:"Asesinato",          color:"#a00010" },
     { key:"death",     label:"Muerte",             color:"#555577" },
     { key:"internal",  label:"Conflicto interno",  color:"#4466bb" },
   ];
+
   const tspan = document.createElement('span');
   tspan.style.cssText = "font-family:'DM Mono',monospace;font-size:0.5rem;color:var(--ink3);text-transform:uppercase;letter-spacing:.08em;margin-right:4px";
   tspan.textContent = 'Evento:';
   ctrl.appendChild(tspan);
 
+  // "Todos" button for event types
+  const allEvBtn = document.createElement('button');
+  allEvBtn.id = 'btn-ev-all';
+  allEvBtn.className = 'cb' + (activeEventFilter === null ? ' on' : '');
+  allEvBtn.textContent = 'Todos';
+  allEvBtn.onclick = () => {
+    activeEventFilter = null;
+    syncEventBtns();
+    drawChart();
+  };
+  ctrl.appendChild(allEvBtn);
+
   types.forEach(t => {
     const b = document.createElement('button');
-    b.className = 'cb' + (activeFilters.has(t.key) ? ' on' : '');
+    b.id = 'btn-ev-' + t.key;
+    b.className = 'cb' + (activeEventFilter === t.key ? ' on' : '');
     b.textContent = t.label;
     b.style.borderColor = t.color + '88';
+    b.style.setProperty('--ev-color', t.color);
     b.onclick = () => {
-      if (activeFilters.has(t.key)) activeFilters.delete(t.key);
-      else activeFilters.add(t.key);
-      b.classList.toggle('on');
+      // If already selected → deselect (show all)
+      if (activeEventFilter === t.key) {
+        activeEventFilter = null;
+      } else {
+        activeEventFilter = t.key;
+      }
+      syncEventBtns();
       drawChart();
     };
     ctrl.appendChild(b);
@@ -725,28 +755,71 @@ function buildControls() {
   sep.className = 'sep';
   ctrl.appendChild(sep);
 
-  // Family filter
+  // ── Family buttons (exclusive: click activates only that, click again shows all)
   const fspan = document.createElement('span');
   fspan.style.cssText = "font-family:'DM Mono',monospace;font-size:0.5rem;color:var(--ink3);text-transform:uppercase;letter-spacing:.08em;margin-right:4px";
   fspan.textContent = 'Familia:';
   ctrl.appendChild(fspan);
 
+  // "Todas" button for families
+  const allFamBtn = document.createElement('button');
+  allFamBtn.id = 'btn-fam-all';
+  allFamBtn.className = 'cb' + (activeFamilyFilter === null ? ' on' : '');
+  allFamBtn.textContent = 'Todas';
+  allFamBtn.onclick = () => {
+    activeFamilyFilter = null;
+    syncFamilyBtns();
+    drawChart();
+  };
+  ctrl.appendChild(allFamBtn);
+
   FAMILY_ROOTS.forEach(root => {
     const fam = FAMILY[root];
     const b = document.createElement('button');
-    b.className = 'cb-fam' + (activeFamilies.has(fam) ? ' on' : '');
+    b.id = 'btn-fam-' + fam;
+    b.className = 'cb-fam' + (activeFamilyFilter === fam ? ' on' : '');
     b.textContent = FAM_LABEL[fam];
     b.style.borderColor = FAM_COLOR[fam] + 'aa';
-    if (activeFamilies.has(fam)) { b.style.background = FAM_COLOR[fam]; }
+    if (activeFamilyFilter === fam) b.style.background = FAM_COLOR[fam];
     b.onclick = () => {
-      if (activeFamilies.has(fam)) activeFamilies.delete(fam);
-      else activeFamilies.add(fam);
-      b.classList.toggle('on');
-      if (b.classList.contains('on')) b.style.background = FAM_COLOR[fam];
-      else b.style.background = 'none';
+      // If already selected → deselect (show all)
+      if (activeFamilyFilter === fam) {
+        activeFamilyFilter = null;
+      } else {
+        activeFamilyFilter = fam;
+      }
+      syncFamilyBtns();
       drawChart();
     };
     ctrl.appendChild(b);
+  });
+}
+
+function syncEventBtns() {
+  const types = ["detention","murder","death","internal"];
+  const allBtn = document.getElementById('btn-ev-all');
+  if (allBtn) {
+    allBtn.classList.toggle('on', activeEventFilter === null);
+  }
+  types.forEach(key => {
+    const b = document.getElementById('btn-ev-' + key);
+    if (!b) return;
+    const isOn = activeEventFilter === key;
+    b.classList.toggle('on', isOn);
+  });
+}
+
+function syncFamilyBtns() {
+  const allBtn = document.getElementById('btn-fam-all');
+  if (allBtn) allBtn.classList.toggle('on', activeFamilyFilter === null);
+  FAMILY_ROOTS.forEach(root => {
+    const fam = FAMILY[root];
+    const b = document.getElementById('btn-fam-' + fam);
+    if (!b) return;
+    const isOn = activeFamilyFilter === fam;
+    b.classList.toggle('on', isOn);
+    b.style.background = isOn ? FAM_COLOR[fam] : 'none';
+    b.style.color = isOn ? '#fff' : '';
   });
 }
 
@@ -779,8 +852,9 @@ function drawChart() {
     .attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
 
   // ── Background family bands
+  const activeFamiliesBands = getActiveFamilies();
   famBands.forEach(fb => {
-    if (!activeFamilies.has(fb.fam)) return;
+    if (!activeFamiliesBands.has(fb.fam)) return;
     g.append('rect')
       .attr('x', -MARGIN.left)
       .attr('y', fb.yStart - ROW_H/2 - 4)
@@ -816,6 +890,8 @@ function drawChart() {
   }
 
   // ── Visible node ids
+  const activeFilters = getActiveFilters();
+  const activeFamilies = getActiveFamilies();
   const visibleNodeIds = new Set();
   nodes.forEach(n => {
     const fam = FAMILY[n.id];
@@ -823,6 +899,14 @@ function drawChart() {
     if (n.tipo === "evento") {
       const em = EVENT_META[n.id];
       if (em && !activeFilters.has(em.etype)) return;
+    }
+    // If event filter is active, hide fragment nodes whose origin event doesn't match
+    if (n.tipo === "fragmento" && activeEventFilter !== null) {
+      const parentNode = nodeMap[n.parent];
+      if (parentNode && parentNode.tipo === "evento") {
+        const em = EVENT_META[n.parent];
+        if (!em || !activeFilters.has(em.etype)) return;
+      }
     }
     visibleNodeIds.add(n.id);
   });
@@ -1079,3 +1163,4 @@ window.addEventListener('resize', () => { positionControls(); drawChart(); });
 </script>
 </body>
 </html>
+
