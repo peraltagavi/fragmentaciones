@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Efecto Kingpin · Fragmentación del Crimen Organizado</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=Barlow+Condensed:wght@300;400;600;700&display=swap');
+
+  :root {
+    --bg: #06060a;
+    --red: #ff2d3b;
+    --amber: #ffb340;
+    --teal: #00e5c3;
+    --blue: #4488ff;
+    --text: #e8e4d9;
+    --muted: #55556a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: 'Barlow Condensed', sans-serif;
+  }
+
+  /* Noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0.6;
+  }
+
+  #canvas {
+    width: 100%; height: 100%;
+    position: absolute;
+  }
+
+  /* Header overlay */
+  #header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 1.2rem 2rem;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    z-index: 10;
+    background: linear-gradient(to bottom, rgba(6,6,10,0.95) 60%, transparent);
+    pointer-events: none;
+  }
+
+  #header h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+    letter-spacing: 0.06em;
+    line-height: 1;
+    color: #fff;
+  }
+
+  #header h1 em {
+    color: var(--red);
+    font-style: normal;
+  }
+
+  #header p {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 0.3rem;
+  }
+
+  .legend {
+    display: flex;
+    gap: 1.4rem;
+    align-items: center;
+    flex-wrap: wrap;
+    pointer-events: none;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .legend-circle {
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .legend-line {
+    width: 18px;
+    height: 2px;
+    flex-shrink: 0;
+  }
+
+  /* Tooltip */
+  #tooltip {
+    position: absolute;
+    background: rgba(8,8,14,0.96);
+    border: 1px solid rgba(255,255,255,0.08);
+    padding: 0.9rem 1.1rem;
+    pointer-events: none;
+    z-index: 20;
+    max-width: 240px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    backdrop-filter: blur(8px);
+  }
+
+  #tooltip.visible { opacity: 1; }
+
+  #tooltip .tt-type {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 0.3rem;
+  }
+
+  #tooltip .tt-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.4rem;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    color: #fff;
+  }
+
+  #tooltip .tt-detail {
+    font-size: 0.75rem;
+    color: #aaa9c0;
+    margin-top: 0.4rem;
+    line-height: 1.4;
+  }
+
+  #tooltip .tt-year {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.1rem;
+    color: var(--amber);
+  }
+
+  /* Bottom controls */
+  #controls {
+    position: absolute;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 0.5rem;
+    z-index: 10;
+  }
+
+  .ctrl-btn {
+    background: rgba(14,14,22,0.9);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--muted);
+    padding: 0.4rem 1rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    backdrop-filter: blur(8px);
+  }
+
+  .ctrl-btn:hover { border-color: var(--amber); color: var(--amber); }
+  .ctrl-btn.active { background: rgba(255,179,64,0.12); border-color: var(--amber); color: var(--amber); }
+
+  /* Stats bar */
+  #statsbar {
+    position: absolute;
+    bottom: 5rem;
+    left: 2rem;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .stat-item {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin-bottom: 0.3rem;
+  }
+
+  .stat-n {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.8rem;
+    line-height: 1;
+  }
+
+  .stat-l {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+
+  /* Hint */
+  #hint {
+    position: absolute;
+    bottom: 1.5rem;
+    right: 2rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    z-index: 10;
+    pointer-events: none;
+    text-align: right;
+    line-height: 1.8;
+  }
+
+  svg text { user-select: none; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div>
+    <h1>EFECTO <em>KINGPIN</em></h1>
+    <p>Fragmentación del crimen organizado en México · 2006–2024</p>
+  </div>
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-circle" style="width:18px;height:18px;background:var(--red);opacity:0.9"></div>
+      Cártel Matriz
+    </div>
+    <div class="legend-item">
+      <div class="legend-circle" style="width:12px;height:12px;background:var(--amber);opacity:0.9"></div>
+      Evento Kingpin
+    </div>
+    <div class="legend-item">
+      <div class="legend-circle" style="width:8px;height:8px;background:var(--teal);opacity:0.9"></div>
+      Grupo Fragmentado
+    </div>
+    <div class="legend-item">
+      <div class="legend-line" style="background:rgba(255,45,59,0.5)"></div>
+      Detención
+    </div>
+    <div class="legend-item">
+      <div class="legend-line" style="background:rgba(255,179,64,0.6);border-top:2px dashed rgba(255,179,64,0.6)"></div>
+      Asesinato/Muerte
+    </div>
+  </div>
+</div>
+
+<svg id="canvas"></svg>
+
+<div id="tooltip">
+  <div class="tt-type" id="tt-type"></div>
+  <div class="tt-name" id="tt-name"></div>
+  <div class="tt-detail" id="tt-detail"></div>
+</div>
+
+<div id="statsbar">
+  <div class="stat-item">
+    <span class="stat-n" style="color:var(--red)">7</span>
+    <span class="stat-l">Cárteles Matriz</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-n" style="color:var(--amber)">23</span>
+    <span class="stat-l">Eventos Kingpin</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-n" style="color:var(--teal)">43</span>
+    <span class="stat-l">Grupos Fragmentados</span>
+  </div>
+</div>
+
+<div id="controls">
+  <button class="ctrl-btn active" id="btn-all" onclick="filterNodes('all')">Todos</button>
+  <button class="ctrl-btn" id="btn-detention" onclick="filterNodes('detention')">Detenciones</button>
+  <button class="ctrl-btn" id="btn-murder" onclick="filterNodes('murder')">Asesinatos</button>
+  <button class="ctrl-btn" id="btn-death" onclick="filterNodes('death')">Muertes</button>
+</div>
+
+<div id="hint">
+  Arrastra los nodos · Hover para detalles<br>
+  Scroll para hacer zoom
+</div>
+
+<script>
+const data = [
+  {matrix:"Cártel de Sinaloa", frag:"Beltrán Leyva", event:"Detención de Alfredo Beltrán Leyva", year:2007, type:"detention"},
+  {matrix:"Cártel de Sinaloa", frag:"Los Chapitos", event:"Detención de Ismael Zambada", year:2024, type:"detention"},
+  {matrix:"Cártel de Sinaloa", frag:"La Mayiza", event:"Detención de Ismael Zambada", year:2024, type:"detention"},
+  {matrix:"Beltrán Leyva", frag:"La Barbie", event:"Asesinato de Arturo Beltrán Leyva", year:2009, type:"murder"},
+  {matrix:"Beltrán Leyva", frag:"Los Rojos", event:"Asesinato de Arturo Beltrán Leyva", year:2009, type:"murder"},
+  {matrix:"Beltrán Leyva", frag:"Los Ardillos", event:"Asesinato de Arturo Beltrán Leyva", year:2009, type:"murder"},
+  {matrix:"La Barbie", frag:"Los Granados", event:"Detención de La Barbie", year:2010, type:"detention"},
+  {matrix:"La Barbie", frag:"La Mano con Ojos", event:"Detención de La Barbie", year:2010, type:"detention"},
+  {matrix:"La Barbie", frag:"CIDA", event:"Detención de La Barbie", year:2010, type:"detention"},
+  {matrix:"La Barbie", frag:"Guerreros Unidos", event:"Detención de La Barbie", year:2010, type:"detention"},
+  {matrix:"La Barbie", frag:"La Barredora", event:"Detención de La Barbie", year:2010, type:"detention"},
+  {matrix:"La Barbie", frag:"Cártel Pacífico Sur", event:"Detención de La Barbie", year:2010, type:"detention"},
+  {matrix:"La Barbie", frag:"Cártel de Tlahuac", event:"Detención de La Barbie", year:2010, type:"detention"},
+  {matrix:"La Familia Michoacana", frag:"Caballeros Templarios", event:"Supuesta muerte de Nazario Moreno", year:2010, type:"death"},
+  {matrix:"La Familia Michoacana", frag:"Los GG", event:"Supuesta muerte de Nazario Moreno", year:2010, type:"death"},
+  {matrix:"Caballeros Templarios", frag:"Tena", event:"Detención de la Tuta", year:2015, type:"detention"},
+  {matrix:"Caballeros Templarios", frag:"Pineda", event:"Detención de la Tuta", year:2015, type:"detention"},
+  {matrix:"Caballeros Templarios", frag:"Cenizo", event:"Detención de la Tuta", year:2015, type:"detention"},
+  {matrix:"Cártel del Milenio", frag:"CJNG", event:"Detención de los Valencia", year:2010, type:"detention"},
+  {matrix:"Cártel del Milenio", frag:"La Resistencia", event:"Detención de los Valencia", year:2010, type:"detention"},
+  {matrix:"Arellano Félix", frag:"Teo", event:"Detención de F.J. Arellano Félix", year:2006, type:"detention"},
+  {matrix:"Cártel del Golfo", frag:"Metros", event:"Detención de Costilla Sánchez\ny Ramírez Treviño", year:2013, type:"detention"},
+  {matrix:"Cártel del Golfo", frag:"Rojos", event:"Detención de Costilla Sánchez\ny Ramírez Treviño", year:2013, type:"detention"},
+  {matrix:"Cártel del Golfo", frag:"Ciclones", event:"Detención de Costilla Sánchez\ny Ramírez Treviño", year:2013, type:"detention"},
+  {matrix:"Cártel del Golfo", frag:"Escorpiones", event:"Detención de Costilla Sánchez\ny Ramírez Treviño", year:2013, type:"detention"},
+  {matrix:"Cártel del Golfo", frag:"Lacoste", event:"Detención de Costilla Sánchez\ny Ramírez Treviño", year:2013, type:"detention"},
+  {matrix:"Cártel del Golfo", frag:"Fresitas", event:"Detención de Costilla Sánchez\ny Ramírez Treviño", year:2013, type:"detention"},
+  {matrix:"Cártel del Golfo", frag:"Dragones", event:"Detención de Costilla Sánchez\ny Ramírez Treviño", year:2013, type:"detention"},
+  {matrix:"Cártel del Golfo", frag:"Bravo", event:"Detención de Costilla Sánchez\ny Ramírez Treviño", year:2013, type:"detention"},
+  {matrix:"Cártel del Golfo", frag:"Sombra", event:"Detención de Costilla Sánchez\ny Ramírez Treviño", year:2013, type:"detention"},
+  {matrix:"Los Zetas", frag:"Talibanes", event:"Muerte de Heriberto Lazcano", year:2012, type:"murder"},
+  {matrix:"Los Zetas", frag:"Cártel del Noreste", event:"Detención de M.A. Treviño Morales", year:2013, type:"detention"},
+  {matrix:"Los Zetas", frag:"Zetas Vieja Escuela", event:"Detención de M.A. Treviño Morales", year:2013, type:"detention"},
+  {matrix:"Los Zetas", frag:"Sangre Nueva Zetas", event:"Detención de M.A. Treviño Morales", year:2013, type:"detention"},
+  {matrix:"La Unión Tepito", frag:"La Anti Unión Tepito", event:"Detención de Roberto Moyado Esparza", year:2018, type:"detention"},
+];
+
+// All unique matrices (root nodes)
+const ROOT_MATRICES = [
+  "Cártel de Sinaloa","Beltrán Leyva","La Barbie",
+  "La Familia Michoacana","Caballeros Templarios",
+  "Cártel del Milenio","Arellano Félix","Cártel del Golfo",
+  "Los Zetas","La Unión Tepito"
+];
+
+// Build nodes and links
+function buildGraph(filter) {
+  const nodes = [];
+  const links = [];
+  const nodeMap = {};
+
+  function addNode(id, type, meta) {
+    if (!nodeMap[id]) {
+      const n = { id, type, ...meta };
+      nodes.push(n);
+      nodeMap[id] = n;
+    }
+    return nodeMap[id];
+  }
+
+  // Determine which entries to include
+  const filtered = filter === 'all' ? data : data.filter(d => d.type === filter);
+  
+  // Always show all root matrix nodes that appear in filtered data
+  const activeMatrices = new Set(filtered.map(d => d.matrix));
+
+  activeMatrices.forEach(m => {
+    // Count total frags for this matrix (in filtered)
+    const fragCount = filtered.filter(d => d.matrix === m).length;
+    addNode(m, 'matrix', { label: m, fragCount });
+  });
+
+  // Collect events
+  const eventMap = {};
+  filtered.forEach(d => {
+    const eid = d.matrix + '|' + d.event + '|' + d.year;
+    if (!eventMap[eid]) eventMap[eid] = { matrix: d.matrix, event: d.event, year: d.year, type: d.type, frags: [] };
+    eventMap[eid].frags.push(d.frag);
+  });
+
+  Object.entries(eventMap).forEach(([eid, ev]) => {
+    const eventNode = addNode(eid, 'event', {
+      label: ev.event,
+      year: ev.year,
+      eventType: ev.type,
+      matrix: ev.matrix,
+      frags: ev.frags
+    });
+
+    // link matrix → event
+    links.push({
+      source: ev.matrix,
+      target: eid,
+      type: ev.type
+    });
+
+    // fragment nodes
+    ev.frags.forEach(frag => {
+      const fragId = frag + '|' + eid;
+      addNode(fragId, 'frag', { label: frag, year: ev.year, eventType: ev.type, matrix: ev.matrix, event: ev.event });
+      links.push({ source: eid, target: fragId, type: ev.type });
+    });
+  });
+
+  return { nodes, links };
+}
+
+const W = window.innerWidth, H = window.innerHeight;
+const svg = d3.select('#canvas')
+  .attr('width', W).attr('height', H);
+
+// Defs
+const defs = svg.append('defs');
+
+// Glow filter
+const glow = defs.append('filter').attr('id','glow').attr('x','-50%').attr('y','-50%').attr('width','200%').attr('height','200%');
+glow.append('feGaussianBlur').attr('stdDeviation','4').attr('result','coloredBlur');
+const feMerge = glow.append('feMerge');
+feMerge.append('feMergeNode').attr('in','coloredBlur');
+feMerge.append('feMergeNode').attr('in','SourceGraphic');
+
+const glowStrong = defs.append('filter').attr('id','glow-strong').attr('x','-80%').attr('y','-80%').attr('width','260%').attr('height','260%');
+glowStrong.append('feGaussianBlur').attr('stdDeviation','10').attr('result','coloredBlur');
+const feMerge2 = glowStrong.append('feMerge');
+feMerge2.append('feMergeNode').attr('in','coloredBlur');
+feMerge2.append('feMergeNode').attr('in','SourceGraphic');
+
+// Radial gradients
+function addRadialGradient(id, c1, c2) {
+  const g = defs.append('radialGradient').attr('id', id);
+  g.append('stop').attr('offset','0%').attr('stop-color', c1);
+  g.append('stop').attr('offset','100%').attr('stop-color', c2);
+}
+addRadialGradient('grad-matrix', '#ff5566', '#aa1122');
+addRadialGradient('grad-event-det', '#ffcc55', '#aa6600');
+addRadialGradient('grad-event-mur', '#ff8833', '#882200');
+addRadialGradient('grad-event-dth', '#8888aa', '#333355');
+addRadialGradient('grad-frag', '#00ffcc', '#006655');
+
+const g = svg.append('g').attr('id','scene');
+
+// Zoom
+const zoom = d3.zoom()
+  .scaleExtent([0.15, 3])
+  .on('zoom', (e) => g.attr('transform', e.transform));
+
+svg.call(zoom);
+svg.call(zoom.transform, d3.zoomIdentity.translate(W/2, H/2).scale(0.8));
+
+let simulation, linkSel, nodeSel, labelSel;
+let currentFilter = 'all';
+
+function typeColor(type) {
+  return type === 'detention' ? '#ffb340' : type === 'murder' ? '#ff2d3b' : '#8888aa';
+}
+
+function gradId(nodeType, eventType) {
+  if (nodeType === 'matrix') return 'url(#grad-matrix)';
+  if (nodeType === 'event') {
+    if (eventType === 'detention') return 'url(#grad-event-det)';
+    if (eventType === 'murder') return 'url(#grad-event-mur)';
+    return 'url(#grad-event-dth)';
+  }
+  return 'url(#grad-frag)';
+}
+
+function nodeRadius(d) {
+  if (d.type === 'matrix') return 28 + (d.fragCount || 0) * 1.2;
+  if (d.type === 'event') return 14 + (d.frags ? d.frags.length * 1.5 : 0);
+  return 7;
+}
+
+function render(filter) {
+  const { nodes, links } = buildGraph(filter);
+
+  g.selectAll('*').remove();
+
+  if (simulation) simulation.stop();
+
+  simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(d => {
+      const s = d.source, t = d.target;
+      const sType = typeof s === 'object' ? s.type : nodes.find(n=>n.id===s)?.type;
+      const tType = typeof t === 'object' ? t.type : nodes.find(n=>n.id===t)?.type;
+      if (sType === 'matrix' && tType === 'event') return 120;
+      return 80;
+    }).strength(0.6))
+    .force('charge', d3.forceManyBody().strength(d => {
+      if (d.type === 'matrix') return -800;
+      if (d.type === 'event') return -350;
+      return -120;
+    }))
+    .force('collide', d3.forceCollide(d => nodeRadius(d) + 12))
+    .force('x', d3.forceX(0).strength(0.04))
+    .force('y', d3.forceY(0).strength(0.04));
+
+  // Links
+  linkSel = g.append('g').attr('class','links')
+    .selectAll('line')
+    .data(links)
+    .join('line')
+    .attr('stroke', d => typeColor(d.type))
+    .attr('stroke-width', d => {
+      const tType = typeof d.target === 'object' ? d.target.type : nodes.find(n=>n.id===d.target)?.type;
+      return tType === 'frag' ? 1 : 2;
+    })
+    .attr('stroke-opacity', d => {
+      const tType = typeof d.target === 'object' ? d.target.type : nodes.find(n=>n.id===d.target)?.type;
+      return tType === 'frag' ? 0.3 : 0.55;
+    })
+    .attr('stroke-dasharray', d => d.type !== 'detention' ? '4 3' : null);
+
+  // Node groups
+  nodeSel = g.append('g').attr('class','nodes')
+    .selectAll('g')
+    .data(nodes)
+    .join('g')
+    .attr('class', d => 'node-g node-'+d.type)
+    .style('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', (e, d) => {
+        if (!e.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x; d.fy = d.y;
+      })
+      .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end', (e, d) => {
+        if (!e.active) simulation.alphaTarget(0);
+        d.fx = null; d.fy = null;
+      })
+    )
+    .on('mouseover', (e, d) => showTooltip(e, d))
+    .on('mousemove', (e) => moveTooltip(e))
+    .on('mouseout', hideTooltip);
+
+  // Outer glow ring for matrix nodes
+  nodeSel.filter(d => d.type === 'matrix')
+    .append('circle')
+    .attr('r', d => nodeRadius(d) + 10)
+    .attr('fill', 'none')
+    .attr('stroke', 'var(--red)')
+    .attr('stroke-width', 1)
+    .attr('stroke-opacity', 0.25)
+    .attr('filter', 'url(#glow)');
+
+  // Outer glow ring for event nodes
+  nodeSel.filter(d => d.type === 'event')
+    .append('circle')
+    .attr('r', d => nodeRadius(d) + 6)
+    .attr('fill', 'none')
+    .attr('stroke', d => typeColor(d.eventType))
+    .attr('stroke-width', 1)
+    .attr('stroke-opacity', 0.2);
+
+  // Main circles
+  nodeSel.append('circle')
+    .attr('r', d => nodeRadius(d))
+    .attr('fill', d => gradId(d.type, d.eventType))
+    .attr('filter', d => d.type === 'matrix' ? 'url(#glow-strong)' : d.type === 'event' ? 'url(#glow)' : null)
+    .attr('stroke', d => {
+      if (d.type === 'matrix') return 'rgba(255,100,100,0.6)';
+      if (d.type === 'event') return 'rgba(255,200,80,0.4)';
+      return 'rgba(0,220,180,0.3)';
+    })
+    .attr('stroke-width', d => d.type === 'matrix' ? 2 : 1);
+
+  // Inner dot for frag nodes
+  nodeSel.filter(d => d.type === 'frag')
+    .append('circle')
+    .attr('r', 3)
+    .attr('fill', 'rgba(0,255,200,0.8)');
+
+  // Labels
+  labelSel = g.append('g').attr('class','labels')
+    .selectAll('text')
+    .data(nodes)
+    .join('text')
+    .text(d => d.label)
+    .attr('text-anchor', 'middle')
+    .attr('dy', d => {
+      if (d.type === 'matrix') return nodeRadius(d) + 16;
+      if (d.type === 'event') return nodeRadius(d) + 13;
+      return nodeRadius(d) + 11;
+    })
+    .attr('font-family', d => d.type === 'matrix' ? "'Bebas Neue', sans-serif" : "'Barlow Condensed', sans-serif")
+    .attr('font-size', d => d.type === 'matrix' ? '15px' : d.type === 'event' ? '10px' : '9px')
+    .attr('font-weight', d => d.type === 'event' ? '600' : '400')
+    .attr('fill', d => {
+      if (d.type === 'matrix') return '#ffffff';
+      if (d.type === 'event') return typeColor(d.eventType);
+      return 'rgba(200,255,240,0.75)';
+    })
+    .attr('letter-spacing', d => d.type === 'matrix' ? '0.05em' : '0.02em')
+    .style('pointer-events', 'none');
+
+  // Year badge on event nodes
+  nodeSel.filter(d => d.type === 'event')
+    .append('text')
+    .text(d => d.year)
+    .attr('text-anchor', 'middle')
+    .attr('dy', '0.35em')
+    .attr('font-family', "'Bebas Neue', sans-serif")
+    .attr('font-size', '11px')
+    .attr('fill', '#fff')
+    .attr('letter-spacing', '0.04em')
+    .style('pointer-events', 'none');
+
+  simulation.on('tick', () => {
+    linkSel
+      .attr('x1', d => d.source.x)
+      .attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x)
+      .attr('y2', d => d.target.y);
+
+    nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+    labelSel.attr('transform', d => `translate(${d.x},${d.y})`);
+  });
+
+  // Animate in
+  nodeSel.style('opacity', 0).transition().duration(600).delay((d,i)=>i*8).style('opacity',1);
+  labelSel.style('opacity', 0).transition().duration(600).delay((d,i)=>i*8+300).style('opacity',1);
+  linkSel.style('opacity', 0).transition().duration(400).delay((d,i)=>i*5).style('opacity',1);
+}
+
+const tooltip = document.getElementById('tooltip');
+const ttType = document.getElementById('tt-type');
+const ttName = document.getElementById('tt-name');
+const ttDetail = document.getElementById('tt-detail');
+
+const typeLabels = { detention:'Detención', murder:'Asesinato', death:'Muerte' };
+
+function showTooltip(event, d) {
+  if (d.type === 'matrix') {
+    ttType.style.color = 'var(--red)';
+    ttType.textContent = '● CÁRTEL MATRIZ';
+    ttName.textContent = d.label;
+    ttDetail.innerHTML = `${d.fragCount} grupo${d.fragCount!==1?'s':''} fragmentado${d.fragCount!==1?'s':''}`;
+  } else if (d.type === 'event') {
+    ttType.style.color = typeColor(d.eventType);
+    ttType.textContent = `● EVENTO KINGPIN · ${typeLabels[d.eventType].toUpperCase()}`;
+    ttName.textContent = d.label.replace('\n',' ');
+    ttDetail.innerHTML = `<span class="tt-year">${d.year}</span> · ${d.frags.length} grupos resultantes<br><span style="color:#555577">${d.frags.join(', ')}</span>`;
+  } else {
+    ttType.style.color = 'var(--teal)';
+    ttType.textContent = '● FRAGMENTO';
+    ttName.textContent = d.label;
+    ttDetail.innerHTML = `Origen: <span style="color:var(--red)">${d.matrix}</span><br>Evento: ${d.event.replace('\n',' ')}<br><span class="tt-year">${d.year}</span>`;
+  }
+  tooltip.classList.add('visible');
+  moveTooltip(event);
+}
+
+function moveTooltip(event) {
+  const x = event.clientX, y = event.clientY;
+  tooltip.style.left = (x + 15) + 'px';
+  tooltip.style.top = (y - 10) + 'px';
+}
+
+function hideTooltip() {
+  tooltip.classList.remove('visible');
+}
+
+function filterNodes(type) {
+  currentFilter = type;
+  document.querySelectorAll('.ctrl-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-'+type)?.classList.add('active');
+  render(type);
+  svg.call(zoom.transform, d3.zoomIdentity.translate(W/2, H/2).scale(type==='all' ? 0.75 : 0.9));
+}
+
+render('all');
+</script>
+</body>
+</html>
